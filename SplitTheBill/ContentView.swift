@@ -3,10 +3,6 @@ import Contacts
 import ContactsUI
 import Combine
 
-import PythonKit
-
-
-
 
 struct ContentView: View {
     @State var pickedContacts: [ContactInfo] = []
@@ -35,9 +31,13 @@ struct ContentView: View {
     @State private var totalIsExpanded = false
     @State private var isShowingMessageView = false
     @State private var isImagePickerPresented = false
-    @State private var selectedImage: UIImage?
+    @State private var selectedImage: UIImage? = nil
     @State private var sourceType: UIImagePickerController.SourceType = .photoLibrary
     @State private var isPhotoActionSheetPresented = false
+    
+    
+    @StateObject private var imageReader = ImageReader()
+    
     
     
     
@@ -435,10 +435,30 @@ struct ContentView: View {
                 MessageView(pickedContacts: pickedContacts, messageBody: "Hello, this is a preloaded message!")
             }
             .sheet(isPresented: $isImagePickerPresented) {
-                        ImagePicker(sourceType: sourceType) { image in
-                            selectedImage = image
-                            saveImageToAppDirectory(image: image)
-                        }
+                ImagePicker(sourceType: .photoLibrary) { image in
+                                    self.selectedImage = image
+                                    saveImageToAppDirectory(image: image)
+                                    imageReader.extractText(image: image) { texts in
+                                                for (index, text) in texts.enumerated() {
+                                                    print("Extracted Text \(index + 1): \(text)")
+                                                }
+                                                
+                                        if let receiptText = texts.last, let bill = self.imageReader.parseReceipt(text: receiptText) {
+                                                    print("Restaurant: \(bill.title)")
+                                                    for item in bill.inputInfos {
+                                                        print("Item: \(item.text1), Quantity: \(item.selectedNumber)")
+                                                    }
+                                                    print("Subtotal: \(bill.tip), Tax: \(bill.tax), Date: \(bill.title)")
+                                                }
+                                            }
+                    
+                    
+                    
+                    
+                    
+                                    
+                                    //sendImageToServer(image: image)
+                                }
                     }
             
             
@@ -564,6 +584,63 @@ struct ContentView: View {
             isPersonSelected[index] = true
         }
     }
+    
+    func sendImageToServer(image: UIImage) {
+        print("Sending image!!!")
+        
+        guard let url = URL(string: "http://localhost:5000/upload") else {
+            print("Invalid URL")
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        
+        let boundary = UUID().uuidString
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        
+        var data = Data()
+        data.append("--\(boundary)\r\n".data(using: .utf8)!)
+        data.append("Content-Disposition: form-data; name=\"image\"; filename=\"image.jpg\"\r\n".data(using: .utf8)!)
+        data.append("Content-Type: image/jpeg\r\n\r\n".data(using: .utf8)!)
+        
+        // Append the image data
+        if let imageData = image.jpegData(compressionQuality: 1) {
+            data.append(imageData)
+        } else {
+            print("Failed to convert UIImage to JPEG data")
+            return
+        }
+        
+        data.append("\r\n--\(boundary)--\r\n".data(using: .utf8)!)
+        
+        let task = URLSession.shared.uploadTask(with: request, from: data) { (responseData, response, error) in
+            if let error = error {
+                print("Error uploading image: \(error.localizedDescription)")
+                return
+            }
+            
+            guard let responseData = responseData else {
+                print("No response data")
+                return
+            }
+            
+            if let httpResponse = response as? HTTPURLResponse {
+                print("HTTP Status Code: \(httpResponse.statusCode)")
+            }
+            
+            if let jsonResponse = try? JSONSerialization.jsonObject(with: responseData, options: []) as? [String: Any] {
+                print("Response from server: \(jsonResponse)")
+            } else {
+                let responseString = String(data: responseData, encoding: .utf8)
+                print("Response string from server: \(responseString ?? "No readable data")")
+            }
+        }
+        task.resume()
+    }
+    
+    
+    
 
     func saveImageToAppDirectory(image: UIImage) {
         guard let data = image.jpegData(compressionQuality: 1) else {

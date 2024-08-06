@@ -26,7 +26,6 @@ struct Bill: Identifiable, Codable {
     var inputInfos: [FoodItem]
     var isPersonSelected: [Bool]
     var title: String
-    var saved = false
     
     
     
